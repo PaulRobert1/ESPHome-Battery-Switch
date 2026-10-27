@@ -1,0 +1,187 @@
+esphome:
+  name: "battery-switch"
+  on_boot:
+    priority: -100
+    then:
+      - text_sensor.template.publish:
+          id: battswstatus
+          state: !lambda 'return id(battery_connected) ? "Connected" : "Disconnected";'
+      - component.update: oled111
+esp8266:
+  board: nodemcuv2
+  restore_from_flash: true
+
+preferences:
+  flash_write_interval: 0s
+
+globals:
+  - id: battery_connected
+    type: bool
+    restore_value: true
+    initial_value: 'true'
+
+
+substitutions:
+  software: 'Batt-OS'
+  status: 'Status'
+
+# Enable logging
+logger:
+  level: INFO
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+i2c:
+  scan: true
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  manual_ip:
+    gateway: !secret wifi_manual_ip_gateway
+    subnet: !secret wifi_manual_ip_subnet
+    static_ip: !secret wifi_manual_ip_static_ip
+
+captive_portal:
+
+text_sensor:
+  - platform: template
+    name: "Battery Status"
+    id: battswstatus
+
+switch:
+  - platform: gpio
+    pin: D7
+    inverted: False
+    id: turnon
+    name: "Switch On"
+    icon: "mdi:restart"
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+    - logger.log: "ON"
+    - delay: 20ms
+    - switch.turn_off: turnon
+    - globals.set:
+        id: battery_connected
+        value: 'true'
+    - text_sensor.template.publish:
+        id: battswstatus
+        state: "Connected"
+
+
+
+  - platform: gpio
+    pin: D8
+    inverted: False
+    id: turnoff
+    name: "Switch Off"
+    icon: "mdi:restart"
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+    - logger.log: "OFF"
+    - delay: 20ms
+    - switch.turn_off: turnoff
+    - globals.set:
+        id: battery_connected
+        value: 'false'
+    - text_sensor.template.publish:
+        id: battswstatus
+        state: "Disconnected"
+
+
+  - platform: gpio
+    pin: D4
+    inverted: true
+    id: capon
+    name: "Charge INV Caps and switch On"
+    restore_mode: ALWAYS_OFF
+    icon: "mdi:power"
+    on_turn_on:
+    - logger.log: "ON"
+    - text_sensor.template.publish:
+        id: battswstatus
+        state: "Charging CAPS"
+    - delay: 15000ms
+    - switch.turn_off: capon
+    - text_sensor.template.publish:
+        id: battswstatus
+        state: "Connecting Battery"
+    - delay: 1000ms
+    - logger.log: "OFF"
+    - delay: 10ms
+    - switch.toggle: turnon
+
+
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: D5
+      mode: INPUT_PULLUP
+      inverted: False
+    name: "Switch On Override"
+    device_class: window
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      - switch.toggle: turnon
+      - delay: 10ms
+      - switch.turn_off: turnon
+
+  - platform: gpio
+    pin:
+      number: D3
+      mode: INPUT_PULLUP
+      inverted: False
+    name: "Switch Off Override"
+    device_class: window
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      - switch.toggle: turnoff
+      - delay: 20ms
+      - switch.turn_off: turnoff
+
+  - platform: gpio
+    pin:
+      number: D6
+      mode: INPUT_PULLUP
+      inverted: False
+    name: "Charge INV Caps and switch On"
+    device_class: window
+    filters:
+      - delayed_on: 10ms
+    on_press:
+      - switch.toggle: capon
+
+
+display:
+  - platform: ssd1306_i2c
+    id: oled111
+    update_interval: 2s
+    contrast: 0.4
+    model: "SH1106 128x64"
+    rotation: 0
+    address: 0x3C
+    lambda: |-
+      it.print(60, 6,  id(font2), TextAlign::TOP_CENTER, "BATTERY STATUS");
+      it.printf( 30, 24, id(font3), "%s", id(battswstatus).state.c_str());
+      it.printf(10, 60, id(font1), TextAlign::BASELINE_LEFT, "Batt-OS");
+
+font:
+  - file: "gfonts://Roboto"
+    id: font1
+    size: 20
+  - file: "gfonts://Roboto"
+    id: font2
+    size: 9
+  - file: "gfonts://Roboto"
+    id: font3
+    size: 9
